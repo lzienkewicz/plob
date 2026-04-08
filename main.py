@@ -10,18 +10,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from lob import simulate
-from config import LAMBDAS, DT, N_STEPS, P_FILL, GAMMA, LOB_INIT
+from config import LAMBDAS, DT, N_STEPS, P_FILL, GAMMA, LOB_INIT, FILL_MODE, K_FILL
 from plotting import plot_single_run
 
 SEED = random.randint(0, 2**31 - 1)
 
-print(f"Running Poisson LOB simulation  (seed={SEED}, gamma={GAMMA})...")
+print(f"Running Poisson LOB simulation  (seed={SEED}, gamma={GAMMA}, fill_mode={FILL_MODE})...")
 result = simulate(
     lambdas=LAMBDAS,
     dt=DT,
     n_steps=N_STEPS,
     p_fill=P_FILL,
     gamma=GAMMA,
+    fill_mode=FILL_MODE,
+    k=K_FILL,
     seed=SEED,
     **LOB_INIT,
 )
@@ -61,7 +63,7 @@ result.print_diagnostics(LAMBDAS, DT)
 # Plot
 # ------------------------------------------------------------------
 
-fig = plot_single_run(result, p_fill=P_FILL, gamma=GAMMA)
+fig = plot_single_run(result, p_fill=P_FILL, gamma=GAMMA, fill_mode=FILL_MODE, k=K_FILL)
 fig.savefig("lob_simulation.png", dpi=150, bbox_inches="tight")
 print("\nFigure saved -> lob_simulation.png")
 plt.show()

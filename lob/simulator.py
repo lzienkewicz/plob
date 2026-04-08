@@ -97,6 +97,19 @@ class SimulationResult:
         print(f"  ask fills (MM sold):   {self.ask_fills}")
 
 
+def fill_probability(delta: float, k: float = 2.0) -> float:
+    """
+    Logistic fill probability based on quote aggressiveness.
+
+    delta > 0 : quote improves on best price  → p > 0.5
+    delta = 0 : quote matches best price       → p = 0.5
+    delta < 0 : quote is passive               → p < 0.5
+
+    k controls sensitivity: small k = flat, large k = step-like.
+    """
+    return 1.0 / (1.0 + np.exp(-k * delta))
+
+
 def simulate(
     lambdas: Dict[str, float],
     dt: float = 0.01,
@@ -107,18 +120,23 @@ def simulate(
     ask_size: int = 10,
     tick_size: int = 1,
     default_depth: int = 10,
-    p_fill: float = 1.0,
+    p_fill: float = 0.5,
     gamma: float = 0.0,
+    fill_mode: str = "logistic",
+    k: float = 2.0,
     seed: Optional[int] = None,
 ) -> SimulationResult:
     """
     Run the Poisson simulation.
 
-    p_fill : probability the MM is filled on each market order.
-             1.0 = always filled (original); 0.5 = queue competition.
-    gamma  : inventory-aversion parameter.  0 = symmetric quoting (Step 2).
-             The MM quotes around r = mid - gamma * inventory, so quotes
-             lean against accumulated inventory.
+    p_fill    : constant fill probability used when fill_mode="constant".
+    gamma     : inventory-aversion parameter.  0 = symmetric quoting.
+                The MM quotes around r = mid - gamma * inventory.
+    fill_mode : "constant" uses p_fill for every market order.
+                "logistic" derives fill probability from quote aggressiveness
+                via a logistic function — no hard quote-crossing guard.
+    k         : logistic sensitivity (fill_mode="logistic" only).
+                Small k → gradual, large k → near step-function.
 
     Returns a SimulationResult with snapshots and diagnostics.
     """
@@ -166,16 +184,24 @@ def simulate(
             mm_bid = int(round(r - half_spread))
             mm_ask = int(round(r + half_spread))
 
-            # 2. Fill MM only when quote crosses book price (Step 3B)
-            #    sell MO hits bids → MM buys at mm_bid (only if mm_bid >= book.bid_price)
-            #    buy  MO hits asks → MM sells at mm_ask (only if mm_ask <= book.ask_price)
+            # 2. Determine fill probability and attempt MM execution
             if fired_event == "sell_market_order":
-                if mm_bid >= book.bid_price and rng.random() < p_fill:
+                if fill_mode == "logistic":
+                    delta = mm_bid - book.bid_price
+                    p = fill_probability(delta, k)
+                else:
+                    p = p_fill if mm_bid >= book.bid_price else 0.0
+                if rng.random() < p:
                     mm.inventory += 1
                     mm.cash -= mm_bid
                     bid_fills += 1
             elif fired_event == "buy_market_order":
-                if mm_ask <= book.ask_price and rng.random() < p_fill:
+                if fill_mode == "logistic":
+                    delta = book.ask_price - mm_ask
+                    p = fill_probability(delta, k)
+                else:
+                    p = p_fill if mm_ask <= book.ask_price else 0.0
+                if rng.random() < p:
                     mm.inventory -= 1
                     mm.cash += mm_ask
                     ask_fills += 1

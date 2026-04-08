@@ -16,7 +16,7 @@ COLORS = {
 }
 
 
-def plot_single_run(result: SimulationResult, p_fill: float, gamma: float) -> plt.Figure:
+def plot_single_run(result: SimulationResult, p_fill: float, gamma: float, fill_mode: str = "logistic", k: float = 2.0) -> plt.Figure:
     """Four-panel figure for a single simulation run."""
     times       = np.array([s.time      for s in result.snapshots])
     mids        = np.array([s.mid_price for s in result.snapshots])
@@ -64,7 +64,8 @@ def plot_single_run(result: SimulationResult, p_fill: float, gamma: float) -> pl
     ax4.legend(fontsize=9)
     ax4.grid(True, ls="--", alpha=0.4)
 
-    fig.suptitle(f"Poisson Limit Order Book  (p_fill={p_fill}, γ={gamma})", fontsize=13)
+    fill_label = f"logistic k={k}" if fill_mode == "logistic" else f"constant p={p_fill}"
+    fig.suptitle(f"Poisson Limit Order Book  (fill={fill_label}, γ={gamma})", fontsize=13)
     return fig
 
 
@@ -123,6 +124,68 @@ def plot_gamma_comparison(
 
     fig.suptitle(
         f"Inventory-Aware MM  —  gamma comparison  (seed={seed}, p_fill={p_fill})",
+        fontsize=12,
+    )
+    plt.tight_layout()
+    return fig
+
+
+def plot_fill_comparison(
+    gamma_configs: list,
+    constant_results: list,
+    logistic_results: list,
+    seed: int,
+    p_fill: float,
+    k: float,
+) -> plt.Figure:
+    """
+    For each gamma value, overlay constant vs logistic wealth on the same axes.
+    One panel per gamma value.
+    """
+    n = len(gamma_configs)
+    ncols = 2
+    nrows = (n + ncols - 1) // ncols
+
+    fig, axes_grid = plt.subplots(nrows, ncols, figsize=(12, 5 * nrows), sharey=False)
+    axes = axes_grid.flatten()
+
+    # Symmetric wealth limits across all panels and both models
+    all_wealth = np.concatenate([
+        [s.wealth for s in res.snapshots]
+        for res in constant_results + logistic_results
+    ])
+    wealth_lim = max(abs(all_wealth.min()), abs(all_wealth.max()))
+
+    for i, ((g, label), res_c, res_l) in enumerate(
+        zip(gamma_configs, constant_results, logistic_results)
+    ):
+        ax = axes[i]
+        t  = np.array([s.time   for s in res_c.snapshots])
+        wc = np.array([s.wealth for s in res_c.snapshots])
+        wl = np.array([s.wealth for s in res_l.snapshots])
+
+        fills_c = res_c.bid_fills + res_c.ask_fills
+        fills_l = res_l.bid_fills + res_l.ask_fills
+        ax.plot(t, wc, color="#9C27B0", lw=1,   label=f"constant p={p_fill}")
+        ax.plot(t, wl, color=COLORS["wealth"], lw=1, alpha=0.85, label=f"logistic k={k}")
+        ax.axhline(0, color="gray", lw=0.5, ls="--")
+        ax.set_title(
+            f"γ = {g}  —  {label}\n"
+            f"constant:  fills={fills_c}  |  final wealth={wc[-1]:.1f}\n"
+            f"logistic:  fills={fills_l}  |  final wealth={wl[-1]:.1f}",
+            fontsize=10,
+        )
+        ax.set_xlabel("time")
+        ax.set_ylabel("wealth")
+        ax.set_ylim(-wealth_lim, wealth_lim)
+        ax.legend(fontsize=8, loc="upper left")
+        ax.grid(True, ls="--", alpha=0.4)
+
+    for ax in axes[n:]:
+        ax.set_visible(False)
+
+    fig.suptitle(
+        f"Fill Model Comparison  —  constant vs logistic  (seed={seed})",
         fontsize=12,
     )
     plt.tight_layout()

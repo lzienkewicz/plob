@@ -11,10 +11,12 @@ LAMBDAS = {
     "cancel_ask":        1.8,
 }
 
-DT      = 0.005   # time step  (Λ * dt = 10.6 * 0.005 = 0.053 << 1)
-N_STEPS = 10_000
-P_FILL  = 0.5     # probability MM is filled on each market order
-GAMMA   = 0.01    # default gamma for single-run
+DT        = 0.005   # time step  (Λ * dt = 10.6 * 0.005 = 0.053 << 1)
+N_STEPS   = 10_000
+P_FILL    = 0.5     # constant fill probability (used when FILL_MODE="constant")
+GAMMA     = 0.01    # default gamma for single-run
+FILL_MODE = "logistic"   # "constant" or "logistic"
+K_FILL    = 2.0          # logistic sensitivity
 
 LOB_INIT = dict(
     bid_price=9999,
