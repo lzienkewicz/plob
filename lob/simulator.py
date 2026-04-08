@@ -90,8 +90,8 @@ class SimulationResult:
             ratio    = fired / expected if expected > 0 else float("nan")
             print(f"  {e:<22}  {fired:>6}  {expected:>8.1f}  {ratio:>6.3f}")
         print(f"\nQueue depletions:")
-        print(f"  ask depleted (price ↑): {self.ask_depletions}")
-        print(f"  bid depleted (price ↓): {self.bid_depletions}")
+        print(f"  ask depleted (price up):   {self.ask_depletions}")
+        print(f"  bid depleted (price down): {self.bid_depletions}")
         print(f"\nMM fill counts:")
         print(f"  bid fills (MM bought): {self.bid_fills}")
         print(f"  ask fills (MM sold):   {self.ask_fills}")
@@ -108,6 +108,7 @@ def simulate(
     tick_size: int = 1,
     default_depth: int = 10,
     p_fill: float = 1.0,
+    gamma: float = 0.0,
     seed: Optional[int] = None,
 ) -> SimulationResult:
     """
@@ -115,6 +116,9 @@ def simulate(
 
     p_fill : probability the MM is filled on each market order.
              1.0 = always filled (original); 0.5 = queue competition.
+    gamma  : inventory-aversion parameter.  0 = symmetric quoting (Step 2).
+             The MM quotes around r = mid - gamma * inventory, so quotes
+             lean against accumulated inventory.
 
     Returns a SimulationResult with snapshots and diagnostics.
     """
@@ -154,15 +158,27 @@ def simulate(
             fired_event = EVENTS[idx]
             event_counts[fired_event] += 1
 
-            # 1. Fill MM at current prices before book update (probabilistic)
-            if fired_event == "sell_market_order" and rng.random() < p_fill:
-                mm.inventory += 1
-                mm.cash -= book.bid_price
-                bid_fills += 1
-            elif fired_event == "buy_market_order" and rng.random() < p_fill:
-                mm.inventory -= 1
-                mm.cash += book.ask_price
-                ask_fills += 1
+            # 1. Compute inventory-adjusted MM quotes (Step 3A)
+            #    r = mid - gamma * inventory  → lean against accumulated position
+            mid = book.mid_price
+            r = mid - gamma * mm.inventory
+            half_spread = (book.ask_price - book.bid_price) / 2.0
+            mm_bid = int(round(r - half_spread))
+            mm_ask = int(round(r + half_spread))
+
+            # 2. Fill MM only when quote crosses book price (Step 3B)
+            #    sell MO hits bids → MM buys at mm_bid (only if mm_bid >= book.bid_price)
+            #    buy  MO hits asks → MM sells at mm_ask (only if mm_ask <= book.ask_price)
+            if fired_event == "sell_market_order":
+                if mm_bid >= book.bid_price and rng.random() < p_fill:
+                    mm.inventory += 1
+                    mm.cash -= mm_bid
+                    bid_fills += 1
+            elif fired_event == "buy_market_order":
+                if mm_ask <= book.ask_price and rng.random() < p_fill:
+                    mm.inventory -= 1
+                    mm.cash += mm_ask
+                    ask_fills += 1
 
             # 2. Update book, track depletions via price moves
             pre_ask_price = book.ask_price
